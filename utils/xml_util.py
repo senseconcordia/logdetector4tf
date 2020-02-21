@@ -1,4 +1,5 @@
 import os
+import csv
 import subprocess
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from utils import file_util, shell_util
 NS_MAP = {"src": "http://www.srcML.org/srcML/src"}
 
 
-def get_logging_calls_xml_of_repo(repo_path: str):
+def get_logging_stmts_xml_of_repo(repo_path: str):
     cch_file_list = file_util.get_all_cch_files(repo_path)
     total_result = []
     for cch_path in cch_file_list:
@@ -22,16 +23,17 @@ def get_logging_calls_xml_of_repo(repo_path: str):
 
 def get_logging_stmts_xml_of_file(file_path: str):
     print("processing: " + file_path)
-    file_expr = get_expr_of_file(file_path)
+    file_expr_list = get_expr_of_file(file_path)
     result = []
-    for expr in file_expr:
-        expr_str = b'<root>' + etree.tostring(expr) + b'</root>'
-        expr = etree.fromstring(expr_str, etree.XMLParser(encoding='utf-8', ns_clean=True, recover=True))
+    for expr in file_expr_list:
+        expr_str = etree.tostring(expr)
+        bin_expr_str = b'<root>' + etree.tostring(expr) + b'</root>'
+        expr = etree.fromstring(bin_expr_str, etree.XMLParser(encoding='utf-8', ns_clean=True, recover=True))
         # print(expr)
 
-        if check_logging_existence(expr):
-            logging_stmt = etree.tostring(expr)
-            result.append(logging_stmt)
+        if is_logging_expr(expr):
+            # logging_stmt = etree.tostring(expr)
+            result.append(expr_str)
 
     return result
 
@@ -52,32 +54,45 @@ def get_expr_of_file(file_path: str):
 
 def get_expr_of_xml_bytes(xml_bytes):
     if xml_bytes is not None:
-        parser = etree.XMLParser(huge_tree=True)
+        parser = etree.XMLParser(huge_tree=True, encoding='utf-8', ns_clean=True, recover=True)
         xml_object = etree.fromstring(xml_bytes, parser=parser)
-        expr_stmt_list = xml_object.xpath('//src:expr_stmt/src:expr', namespaces=NS_MAP)
-        return expr_stmt_list
+        expr_list = xml_object.xpath('//src:unit//src:expr', namespaces=NS_MAP)
+        return expr_list
     else:
         return []
 
 
-def check_logging_existence(expr_xml_obj):
-    # print(expr_xml_obj)
-    call_xpath_str = '//src:*[1]'
+def is_logging_expr(expr_xml_obj):
+    # select the current node and take it as the root, and only fetch the immediate child.
+    call_xpath_str = './src:expr/*[1]'
     expr_call_xml = expr_xml_obj.xpath(call_xpath_str, namespaces=NS_MAP)
-    operator_xpath_str = '//src:*[2]'
+    operator_xpath_str = './src:expr/*[2]'
     expr_operator_xml = expr_xml_obj.xpath(operator_xpath_str, namespaces=NS_MAP)
     if_direct_log_call = False
     if_second_operator = True
     for call_item in expr_call_xml:
         # print(etree.tostring(call_item).decode('utf-8'))
-        if etree.tostring(call_item).decode('utf-8').startswith('<call'):
+        call_item_str = etree.tostring(call_item).decode('utf-8')
+        if call_item_str.startswith('<call'):
+            # print(etree.tostring(call_item).decode('utf-8'))
             call_xml_obj = etree.fromstring(b'<root>' + etree.tostring(call_item) + b'</root>', etree.XMLParser(encoding='utf-8', ns_clean=True, recover=True))
-            name_xpath_str = '//src:*[1]'
+            name_xpath_str = './src:call/*[1]'
+            immediate_following_sibling_xpath_str = './src:call/following-sibling:*[1]'
             call_name_xml = call_xml_obj.xpath(name_xpath_str, namespaces=NS_MAP)
+            immediate_sibling_xml = call_xml_obj.xpath(name_xpath_str, namespaces=NS_MAP)
             for name_item in call_name_xml:
-                if "VLOG" in etree.tostring(name_item).decode('utf-8') or "LOG" in etree.tostring(name_item).decode('utf-8'):
+                name_item_str = etree.tostring(name_item).decode('utf-8')
+                if ("VLOG".upper() in name_item_str or "LOG".upper() in name_item_str) and name_item_str.startswith('<name'):
                     print(etree.tostring(name_item).decode('utf-8'))
                     if_direct_log_call = True
+
+    # for operator_item in expr_operator_xml:
+    #     if etree.tostring(operator_item).decode('utf-8').startswith('<operator'):
+    #         operator_xml_obj = etree.fromstring(b'<root>' + etree.tostring(operator_item) + b'</root>',
+    #                                         etree.XMLParser(encoding='utf-8', ns_clean=True, recover=True))
+    #         operator_value_xpath_str = './src:operator/text()'
+    #         operator_value = operator_xml_obj.xpath(operator_value_xpath_str, namespaces=NS_MAP)
+    #         print(operator_value)
 
 
 
@@ -109,6 +124,25 @@ def transform_xml_str_to_code(xml_str):
 
 
 
-print(get_logging_calls_xml_of_repo("/Users/holen/DegreeProject/VCS/log4mlf/tensorflow"))
+# print(get_logging_stmts_xml_of_repo("/Users/holen/DegreeProject/VCS/log4mlf/tensorflow"))
+# print(get_logging_stmts_xml_of_repo("/Users/holen/Desktop/tf-test/xla_kernel_cache"))
+
+xml_logging_item_list = get_logging_stmts_xml_of_repo("/Users/holen/DegreeProject/VCS/log4mlf/tensorflow")
+str_logging_item_list = []
+for item in xml_logging_item_list:
+    print(type(item))
+    print(item.decode('utf-8'))
+    str_logging_item = transform_xml_str_to_code(item.decode('utf-8'))
+    print(str_logging_item)
+    str_logging_item_list.append(str_logging_item)
+
+with open('/Users/holen/DegreeProject/logdetector4tf/data/tf_log_data.txt', 'w') as f:
+    for item in str_logging_item_list:
+        # byte_str = str.encode(item)
+        # print_logging_str = (item[2:-1])
+        item = item[2:-1].replace('\\n', '').replace('\\t', '').replace('\\r', '')
+        print_logging_str = " ".join(item.split())
+
+        f.write("%s\n" % print_logging_str)
 
 
