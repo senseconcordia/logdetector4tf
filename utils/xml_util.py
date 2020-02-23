@@ -111,14 +111,14 @@ def transform_xml_str_to_code(xml_str):
 
 def main():
     xml_logging_item_dict = get_logging_stmts_xml_of_repo("/Users/holen/DegreeProject/VCS/log4mlf/tensorflow")
-    print(len(xml_logging_item_dict.keys()))
+    # print(len(xml_logging_item_dict.keys()))
 
     with open('/Users/holen/DegreeProject/logdetector4tf/data/tf_log_data.txt', 'w') as f:
         for key in xml_logging_item_dict.keys():
             f.write("\n%s\n" % key)
             for item in xml_logging_item_dict[key]:
                 str_logging_item = transform_xml_str_to_code(item.decode('utf-8'))
-                str_logging_item = str_logging_item[2:-1].replace('\\n', '').replace('\\t', '').replace('\\r', '')
+                str_logging_item = str_logging_item[2:-1].replace('\\n', '').replace('\\t', '').replace('\\r', '').replace('\\', '')
                 print_logging_str = " ".join(str_logging_item.split())
                 f.write("%s\n" % print_logging_str)
 
